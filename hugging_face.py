@@ -1,35 +1,52 @@
-# streamlit run hugging_face.py --server.enableXsrfProtection false
-# use above command for running the code
-# Import required libraries
 import os
-from huggingface_hub import login
-from transformers import pipeline
-import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import streamlit as st
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from cryptography.fernet import Fernet
+import io
 
 # Define your Hugging Face API key here
 apikey = "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"
 
-# Login with your Hugging Face API key
-login(token=apikey)
+# Initialize the tokenizer and model
+model_name = "gpt2"  # Replace with the model you need
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name)
 
-# Initialize the Hugging Face pipeline for text generation
-generator = pipeline('text-generation', model='gpt2')  # You can choose a different model if needed
+# Initialize encryption key and cipher (For real usage, load this from a secure location)
+key = Fernet.generate_key()
+cipher_suite = Fernet(key)
+
+def generate_text(prompt):
+    inputs = tokenizer(prompt, return_tensors="pt")
+    outputs = model.generate(inputs["input_ids"], max_length=150)
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+# Encryption and Decryption Functions
+def encrypt_data(data):
+    return cipher_suite.encrypt(data.encode())
+
+def decrypt_data(encrypted_data):
+    try:
+        decrypted_data = cipher_suite.decrypt(encrypted_data).decode()
+        return decrypted_data
+    except Exception as e:
+        st.error(f"Decryption failed: {e}")
+        raise
 
 # Title
 st.title('AI Assistant for Data Science 🤖')
 
 # Welcoming message
-st.write("Hello, 👋 I am your AI Assistant and I am here to help you with your data science projects.")
+st.write("Hello, 👋 I am your AI Assistant, and I am here to help you with your data science projects.")
 
 # Explanation sidebar
 with st.sidebar:
     st.write('*Your Data Science Adventure Begins with a CSV File.*')
-    st.caption('''**You may already know that every exciting data science journey starts with a dataset.
-    That's why I'd love for you to upload a CSV file.
-    Once we have your data in hand, we'll dive into understanding it and have some fun exploring it.
-    Then, we'll work together to shape your business challenge into a data science framework.
-    I'll introduce you to the coolest machine learning models, and we'll use them to tackle your problem. Sounds fun right?**
+    st.caption('''**Upload a CSV file to begin. I will analyze the data, provide insights, generate visualizations, 
+    and suggest appropriate machine learning models to tackle your problem. Let’s dive into your data science journey!**
     ''')
 
     st.divider()
@@ -49,13 +66,24 @@ st.button("Let's get started", on_click=clicked, args=[1])
 if st.session_state.clicked[1]:
     user_csv = st.file_uploader("Upload your file here", type="csv")
     if user_csv is not None:
-        user_csv.seek(0)
-        df = pd.read_csv(user_csv, low_memory=False)
+        # Encrypt the file for demonstration (you can test decryption with a sample encrypted file)
+        file_data = user_csv.read()
+        encrypted_file = encrypt_data(file_data.decode(errors='ignore'))
+
+        # Notify user about encryption
+        st.write("Your data has been successfully encrypted.")
+
+        try:
+            decrypted_file = decrypt_data(encrypted_file)
+            df = pd.read_csv(io.StringIO(decrypted_file), low_memory=False)
+        except Exception as e:
+            st.error(f"An error occurred during decryption: {e}")
+            st.stop()
 
         # Function sidebar
         @st.cache_data
         def steps_eda():
-            steps_eda = generator('What are the steps of EDA?', max_length=100)[0]['generated_text']
+            steps_eda = generate_text('What are the steps of EDA?')
             return steps_eda
 
         # Functions main
@@ -64,46 +92,82 @@ if st.session_state.clicked[1]:
             st.write("**Data Overview**")
             st.write("The first rows of your dataset look like this:")
             st.write(df.head())
+
             st.write("**Data Cleaning**")
-            columns_df = generator('What are the meaning of the columns?', max_length=100)[0]['generated_text']
-            st.write(columns_df)
-            missing_values = generator("How many missing values does this dataframe have? Start the answer with 'There are'", max_length=100)[0]['generated_text']
-            st.write(missing_values)
-            duplicates = generator("Are there any duplicate values and if so where?", max_length=100)[0]['generated_text']
-            st.write(duplicates)
+            st.write("Missing values in each column:")
+            null_values = df.isnull().sum()
+            st.write(null_values[null_values > 0])
+
+            st.write("Duplicate values in the dataset:")
+            duplicates = df[df.duplicated()]
+            if not duplicates.empty:
+                st.write(duplicates)
+            else:
+                st.write("No duplicate values found.")
+
             st.write("**Data Summarisation**")
             st.write(df.describe())
-            correlation_analysis = generator("Calculate correlations between numerical variables to identify potential relationships.", max_length=100)[0]['generated_text']
-            st.write(correlation_analysis)
-            outliers = generator("Identify outliers in the data that may be erroneous or that may have a significant impact on the analysis.", max_length=100)[0]['generated_text']
-            st.write(outliers)
-            new_features = generator("What new features would be interesting to create?.", max_length=100)[0]['generated_text']
-            st.write(new_features)
-            return
+
+            st.write("**Visualizations**")
+            
+            # Heatmap of missing values
+            fig, ax = plt.subplots()
+            sns.heatmap(df.isnull(), cbar=False, cmap='viridis', ax=ax)
+            ax.set_title('Heatmap of Missing Values')  # Title for the heatmap
+            st.pyplot(fig)
+
+            # Histograms of numeric features
+            num_features = df.select_dtypes(include=['number']).columns
+            if len(num_features) > 0:
+                fig, ax = plt.subplots()
+                df[num_features].hist(ax=ax, bins=30, figsize=(10, 7))
+                ax.set_title('Histograms of Numeric Features')  # Title for the histograms
+                st.pyplot(fig)
+            else:
+                st.write("No numeric features available for histograms.")
+
+            # Pairplot for visualizing relationships between numeric features
+            if len(num_features) > 1:
+                pairplot_fig = sns.pairplot(df[num_features])
+                pairplot_fig.fig.suptitle('Pairplot of Numeric Features', y=1.02)  # Title for the pairplot
+                st.pyplot(pairplot_fig.fig)
+
+            # Suggest ML models based on data types
+            st.markdown(
+            """
+            <p style='font-size: 25px;'><strong>Suggested Machine Learning Models</strong></p>
+            """,
+            unsafe_allow_html=True
+            )
+
+            # Using st.write() for other messages
+            if 'object' in df.dtypes.values:
+                st.write("Since your dataset contains categorical data, consider using models like Decision Trees, Random Forests, or Gradient Boosting.")
+            else:
+                st.write("Since your dataset is numeric, consider using models like Linear Regression, Support Vector Machines, or Neural Networks.")
 
         @st.cache_data
         def function_question_variable():
             st.line_chart(df, y=[user_question_variable])
-            summary_statistics = generator(f"Give me a summary of the statistics of {user_question_variable}", max_length=100)[0]['generated_text']
+            summary_statistics = generate_text(f"Give me a summary of the statistics of {user_question_variable}")
             st.write(summary_statistics)
-            normality = generator(f"Check for normality or specific distribution shapes of {user_question_variable}", max_length=100)[0]['generated_text']
+            normality = generate_text(f"Check for normality or specific distribution shapes of {user_question_variable}")
             st.write(normality)
-            outliers = generator(f"Assess the presence of outliers of {user_question_variable}", max_length=100)[0]['generated_text']
+            outliers = generate_text(f"Assess the presence of outliers of {user_question_variable}")
             st.write(outliers)
-            trends = generator(f"Analyse trends, seasonality, and cyclic patterns of {user_question_variable}", max_length=100)[0]['generated_text']
+            trends = generate_text(f"Analyse trends, seasonality, and cyclic patterns of {user_question_variable}")
             st.write(trends)
-            missing_values = generator(f"Determine the extent of missing values of {user_question_variable}", max_length=100)[0]['generated_text']
+            missing_values = generate_text(f"Determine the extent of missing values of {user_question_variable}")
             st.write(missing_values)
             return
 
         @st.cache_data
         def function_question_dataframe():
-            dataframe_info = generator(user_question_dataframe, max_length=100)[0]['generated_text']
+            dataframe_info = generate_text(user_question_dataframe)
             st.write(dataframe_info)
             return
 
         # Main
-
         st.header('Exploratory Data Analysis')
         st.subheader('General information about the dataset')
 
@@ -113,16 +177,14 @@ if st.session_state.clicked[1]:
 
         function_agent()
 
-        st.subheader('Variable of study')
+        st.subheader('Variable of Study')
         user_question_variable = st.text_input('What variable are you interested in')
         if user_question_variable:
             function_question_variable()
 
-            st.subheader('Further study')
-
-        if user_question_variable:
-            user_question_dataframe = st.text_input("Is there anything else you would like to know about your dataframe?")
-            if user_question_dataframe and user_question_dataframe not in ("", "no", "No"):
-                function_question_dataframe()
-            if user_question_dataframe in ("no", "No"):
-                st.write("")
+        st.subheader('Further Study')
+        user_question_dataframe = st.text_input("Is there anything else you would like to know about your dataframe?")
+        if user_question_dataframe and user_question_dataframe not in ("", "no", "No"):
+            function_question_dataframe()
+        elif user_question_dataframe in ("no", "No"):
+            st.write("")
