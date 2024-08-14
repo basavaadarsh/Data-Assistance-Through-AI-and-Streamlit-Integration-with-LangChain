@@ -6,6 +6,7 @@ import streamlit as st
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from cryptography.fernet import Fernet
 import io
+import base64
 import pdfkit
 
 # Define your Hugging Face API key here
@@ -181,21 +182,32 @@ if st.session_state.clicked[1]:
             st.write(dataframe_info)
             return
 
-        @st.cache_data
         def train_predictive_model(feature_cols, target_col, num_years):
-            # Check for NaN values in the target column
+            # Check if the target column and feature columns exist
+            if target_col not in df.columns:
+                st.error(f"Target column '{target_col}' does not exist in the dataset.")
+                return
+            if not set(feature_cols).issubset(df.columns):
+                st.error("One or more feature columns do not exist in the dataset.")
+                return
+
+            # Handle NaN values in the target column
             if df[target_col].isnull().any():
-                st.error("The target column contains NaN values. Please handle them before training.")
+                st.write(f"The target column '{target_col}' contains NaN values.")
+                st.write("Handling NaN values by removing rows with NaN in the target column.")
+                df.dropna(subset=[target_col], inplace=True)
+            
+            # Handle NaN values in the feature columns
+            df.dropna(subset=feature_cols, inplace=True)
+
+            # Check if there are any data left for training
+            if df.empty:
+                st.error("No data left after handling NaN values. Please check your dataset.")
                 return
             
             # Prepare data
-            X = df[feature_cols].dropna()
-            y = df[target_col].dropna()
-            X = X.loc[y.index]  # Align X and y indices
-            
-            if X.empty or y.empty:
-                st.error("Feature or target columns contain no valid data for training.")
-                return
+            X = df[feature_cols]
+            y = df[target_col]
 
             # Split the data
             from sklearn.model_selection import train_test_split
@@ -224,92 +236,77 @@ if st.session_state.clicked[1]:
 
         # Main
         st.header('Exploratory Data Analysis')
-        st.subheader('General information about the dataset')
-
-        with st.sidebar:
-            with st.expander('What are the steps of EDA'):
-                st.write(steps_eda())
-
+        st.subheader('General information about the data')
         function_agent()
 
-        st.subheader('Data Cleaning')
-        st.write("Null values in the dataset:")
-        null_values = df.isnull().sum()
-        st.write(null_values[null_values > 0])
+        # Variable Study
+        st.header('Variable Study')
+        user_question_variable = st.selectbox("Select a variable for study", df.columns)
+        if user_question_variable:
+            function_question_variable()
 
-        # Add a button to remove null values
-        if st.button('Remove Null Values'):
-            df_cleaned = df.dropna()
-            st.write("Null values have been removed. Here are the first few rows of the cleaned dataset:")
-            st.write(df_cleaned.head())
-        else:
-            df_cleaned = df
+        # Dataframe Study
+        st.header('DataFrame Study')
+        user_question_dataframe = st.text_area("Ask a question about the DataFrame")
+        if user_question_dataframe:
+            function_question_dataframe()
 
-        st.subheader('Predictive Modeling')
-        st.write("Select the feature columns for prediction:")
-        feature_columns = st.multiselect('Feature Columns', df_cleaned.select_dtypes(include=['number']).columns)
+        # Predictive Modeling
+        st.header('Predictive Modeling')
+        st.write("**Select Feature Columns and Target Column for Prediction**")
+        feature_cols = st.multiselect("Select Feature Columns", df.columns.tolist())
+        target_col = st.selectbox("Select Target Column", df.columns.tolist())
+        num_years = st.number_input("Enter number of years for prediction", min_value=1, value=1)
+        if st.button("Train Model"):
+            train_predictive_model(feature_cols, target_col, num_years)
         
-        if feature_columns:
-            st.write("Select the target variable for prediction:")
-            target_column = st.selectbox('Target Column', df_cleaned.select_dtypes(include=['number']).columns)
-            
-            if st.button('Train Model'):
-                num_years = st.number_input('Enter number of years to predict:', min_value=1, value=1)
-                if feature_columns and target_column:
-                    train_predictive_model(feature_columns, target_column, num_years)
-                else:
-                    st.error("Please select both feature columns and target variable.")
-
-        # Add a button to download the report as PDF
-        if st.button('Download Analysis Report'):
-            html_content = """
+        # Download Report
+        st.header('Download Analysis Report')
+        if st.button("Generate Report"):
+            content = """
             <html>
-            <head><title>Analysis Report</title></head>
+            <head>
+                <style>
+                    body {font-family: Arial, sans-serif; margin: 20px;}
+                    h1, h2 {color: #333;}
+                    table {width: 100%; border-collapse: collapse;}
+                    table, th, td {border: 1px solid #ddd;}
+                    th, td {padding: 8px; text-align: left;}
+                    th {background-color: #f2f2f2;}
+                    .chart {margin-bottom: 20px;}
+                </style>
+            </head>
             <body>
-            <h1>Analysis Report</h1>
-            <h2>Data Overview</h2>
-            <p>The first rows of your dataset:</p>
-            {data_head}
-
-            <h2>Data Cleaning</h2>
-            <p>Missing values in each column:</p>
-            {null_values_table}
-            <p>Duplicate values in the dataset:</p>
-            {duplicates_table}
-
-            <h2>Data Summarisation</h2>
-            {summary_statistics}
-
-            <h2>Visualizations</h2>
-            <img src="data:image/png;base64,{heatmap_image}" alt="Heatmap of Missing Values">
-            {histograms_images}
-            {pairplot_image}
-
-            <h2>Suggested Machine Learning Models</h2>
-            {ml_suggestions}
-
-            <h2>Predictive Modeling</h2>
-            {model_results}
+                <h1>Analysis Report</h1>
+                <h2>Data Overview</h2>
+                <p>Below is the overview of your dataset:</p>
+                {data_overview}
+                <h2>Visualizations</h2>
+                <p>Below are the visualizations generated from your data:</p>
+                <div class="chart">
+                    <img src="data:image/png;base64,{heatmap_base64}" alt="Heatmap of Missing Values"/>
+                </div>
+                <div class="chart">
+                    <img src="data:image/png;base64,{histograms_base64}" alt="Histograms of Numeric Features"/>
+                </div>
+                <div class="chart">
+                    <img src="data:image/png;base64,{pairplot_base64}" alt="Pairplot of Numeric Features"/>
+                </div>
+                <h2>Predictive Modeling</h2>
+                <p>Results of the predictive modeling:</p>
+                <p>Mean Squared Error: {mse}</p>
+                <p>R^2 Score: {r2}</p>
+                <p>Predictions for the next {num_years} years: {future_predictions}</p>
             </body>
             </html>
             """.format(
-                data_head=df.head().to_html(),
-                null_values_table=null_values[null_values > 0].to_frame().to_html(),
-                duplicates_table=df[df.duplicated()].to_html() if not df[df.duplicated()].empty else "No duplicate values found.",
-                summary_statistics=df.describe().to_html(),
-                heatmap_image=plt_to_base64(plt.figure()),  # Placeholder for the actual image
-                histograms_images="",
-                pairplot_image=plt_to_base64(plt.figure()),  # Placeholder for the actual image
-                ml_suggestions="Your ML suggestions here",  # Placeholder for ML suggestions
-                model_results="Model results will be included here"  # Placeholder for model results
+                data_overview=df.describe().to_html(),
+                heatmap_base64=plt_to_base64(plt.figure()),
+                histograms_base64=plt_to_base64(plt.figure()),
+                pairplot_base64=plt_to_base64(plt.figure()),
+                mse="N/A", r2="N/A", future_predictions="N/A"
             )
-
-            pdf_path = generate_pdf_report(html_content)
+            pdf_path = generate_pdf_report(content)
             with open(pdf_path, "rb") as f:
-                st.download_button(
-                    label="Download PDF Report",
-                    data=f,
-                    file_name="analysis_report.pdf",
-                    mime="application/pdf"
-                )
+                st.download_button("Download PDF Report", f, file_name="analysis_report.pdf")
 
