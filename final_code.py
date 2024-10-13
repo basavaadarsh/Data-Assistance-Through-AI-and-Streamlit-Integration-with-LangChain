@@ -7,7 +7,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from cryptography.fernet import Fernet
 import io
 import base64
-import pdfkit
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.svm import SVR
+from sklearn.metrics import mean_squared_error
 
 # Define your Hugging Face API key here
 apikey = "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"
@@ -44,12 +48,6 @@ def plt_to_base64(fig):
     fig.savefig(buf, format='png')
     buf.seek(0)
     return base64.b64encode(buf.read()).decode('utf-8')
-
-def generate_pdf_report(content):
-    """Generate a PDF report from HTML content"""
-    pdf_path = "analysis_report.pdf"
-    pdfkit.from_string(content, pdf_path)
-    return pdf_path
 
 # Title
 st.title('AI Assistant for Data Science 🤖')
@@ -207,7 +205,10 @@ if st.session_state.clicked[1]:
         user_question_dataframe = st.text_area("Ask a question about the DataFrame")
         if user_question_dataframe:
             dataframe_info = generate_text(user_question_dataframe)
-            st.write(dataframe_info)
+            # Prevent repeating responses
+            if dataframe_info not in st.session_state:
+                st.write(dataframe_info)
+                st.session_state[dataframe_info] = dataframe_info
 
         # Predictive Modeling
         st.header('Predictive Modeling')
@@ -215,25 +216,50 @@ if st.session_state.clicked[1]:
         feature_cols = st.multiselect("Select Feature Columns", df.columns.tolist())
         target_col = st.selectbox("Select Target Column", df.columns.tolist())
         num_years = st.number_input("Enter number of years for prediction", min_value=1, value=1)
+        model_choice = st.selectbox("Select Machine Learning Model", ["Linear Regression", "Random Forest", "Gradient Boosting", "Support Vector Regression"])
+
         if st.button("Train Model"):
             # Check if the target column and feature columns exist
             if target_col not in df.columns:
                 st.error(f"Target column '{target_col}' does not exist in the dataset.")
             if not set(feature_cols).issubset(df.columns):
                 st.error("One or more feature columns do not exist in the dataset.")
+            else:
+                # Handle missing values
+                df = df.dropna(subset=[target_col] + feature_cols)
 
-            # Handle NaN values in the target column
-            if df[target_col].isnull().any():
-                st.write(f"The target column '{target_col}' contains NaN values.")
-                st.write("Handling missing values...")
-                # Additional logic to handle missing values can be added here
+                X = df[feature_cols]
+                y = df[target_col]
 
-            # Here you would include your model training logic based on the selected features and target.
-            st.write("Model training logic is not implemented yet.")
+                # Split the data into training and testing sets
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-        # Report generation
-        if st.button("Generate Report"):
-            html_content = f"<h1>Data Analysis Report</h1><h2>Data Overview</h2>{df.describe().to_html()}"
-            pdf_path = generate_pdf_report(html_content)
-            st.success(f"Report generated successfully: [Download PDF](/{pdf_path})")
+                # Initialize the selected model
+                if model_choice == "Linear Regression":
+                    model = LinearRegression()
+                elif model_choice == "Random Forest":
+                    model = RandomForestRegressor()
+                elif model_choice == "Gradient Boosting":
+                    model = GradientBoostingRegressor()
+                elif model_choice == "Support Vector Regression":
+                    model = SVR()
 
+                # Train the model
+                model.fit(X_train, y_train)
+
+                # Make predictions
+                predictions = model.predict(X_test)
+
+                # Calculate accuracy
+                mse = mean_squared_error(y_test, predictions)
+                rmse = mse ** 0.5
+                st.write(f"**Model Accuracy (RMSE):** {rmse:.2f}")
+
+                # Future prediction logic (you can customize this)
+                future_prediction = model.predict(pd.DataFrame(X_test.iloc[-num_years:]))
+                trend = "high" if future_prediction.mean() > y.mean() else "low"
+                st.write(f"The market is expected to be {trend} in the future.")
+
+                # Display predictions
+                st.write("**Predictions:**")
+                st.write(predictions)
