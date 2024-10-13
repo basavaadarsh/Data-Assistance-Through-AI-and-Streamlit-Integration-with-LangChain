@@ -258,7 +258,7 @@ if st.session_state.clicked[1]:
                 # Future prediction logic (you can customize this)
                 future_prediction = model.predict(pd.DataFrame(X_test.iloc[-num_years:]))
                 trend = "high" if future_prediction.mean() > y.mean() else "low"
-                st.write(f"The market is expected to be {trend} in the future.")
+                st.write(f"The market is expected to be {trend} in the future after {num_years} years.")
 
                 # Display predictions
                 st.write("**Predictions:**")
