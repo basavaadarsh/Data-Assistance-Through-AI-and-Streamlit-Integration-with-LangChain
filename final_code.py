@@ -63,7 +63,9 @@ with st.sidebar:
     st.caption('''**Upload a CSV file to begin. I will analyze the data, provide insights, generate visualizations, 
     and suggest appropriate machine learning models to tackle your problem. Let’s dive into your data science journey!**
     ''')
+
     st.divider()
+
     st.caption("<p style ='text-align:center'> made with ❤️ by Kare</p>", unsafe_allow_html=True)
 
 # Initialize the key in session state
@@ -79,7 +81,7 @@ st.button("Let's get started", on_click=clicked, args=[1])
 if st.session_state.clicked[1]:
     user_csv = st.file_uploader("Upload your file here", type="csv")
     if user_csv is not None:
-        # Encrypt the file for demonstration
+        # Encrypt the file for demonstration (you can test decryption with a sample encrypted file)
         file_data = user_csv.read()
         encrypted_file = encrypt_data(file_data.decode(errors='ignore'))
 
@@ -160,38 +162,34 @@ if st.session_state.clicked[1]:
                 st.write("Since your dataset is numeric, consider using models like Linear Regression, Support Vector Machines, or Neural Networks.")
 
         @st.cache_data
-        def function_question_variable(variable):
+        def function_question_variable(selected_variable):
+            # Provide insights on the selected variable
+            st.write(f"**Analyzing Variable: {selected_variable}**")
+
             # Summary statistics
-            st.write(f"**Summary Statistics for {variable}**")
-            summary_statistics = df[variable].describe()
+            summary_statistics = df[selected_variable].describe()
+            st.write("**Summary Statistics**")
             st.write(summary_statistics)
 
-            # Normality check
-            st.write(f"**Normality Check for {variable}**")
+            # Check for normality
             fig, ax = plt.subplots()
-            sns.histplot(df[variable], kde=True, ax=ax)
-            ax.set_title(f'Normality Distribution for {variable}')
-            st.pyplot(fig)
+            sns.histplot(df[selected_variable], kde=True, ax=ax)
+            ax.set_title(f'Distribution of {selected_variable}')
+            st.pyplot(fig)  # Use the current figure
 
-            # Outlier assessment
-            st.write(f"**Assessing Outliers for {variable}**")
-            Q1 = df[variable].quantile(0.25)
-            Q3 = df[variable].quantile(0.75)
-            IQR = Q3 - Q1
-            outlier_condition = (df[variable] < (Q1 - 1.5 * IQR)) | (df[variable] > (Q3 + 1.5 * IQR))
-            outliers = df[outlier_condition]
-            st.write(f"Number of outliers for {variable}: {outliers.shape[0]}")
+            # Assess outliers
+            lower_bound = df[selected_variable].quantile(0.25) - 1.5 * (df[selected_variable].quantile(0.75) - df[selected_variable].quantile(0.25))
+            upper_bound = df[selected_variable].quantile(0.75) + 1.5 * (df[selected_variable].quantile(0.75) - df[selected_variable].quantile(0.25))
+            outlier_count = ((df[selected_variable] < lower_bound) | (df[selected_variable] > upper_bound)).sum()
+            st.write(f"**Number of Outliers for {selected_variable}:** {outlier_count}")
 
-            # Missing values check
-            missing_values = df[variable].isnull().sum()
-            st.write(f"**Missing Values in {variable}**: {missing_values}")
+            # Missing values
+            missing_values = df[selected_variable].isnull().sum()
+            st.write(f"**Missing Values in {selected_variable}:** {missing_values}")
 
-            # Trends analysis
-            if pd.api.types.is_numeric_dtype(df[variable]):
-                st.write(f"**Trends Analysis for {variable}**")
-                fig, ax = plt.subplots()
-                df[variable].plot(title=f'Trends of {variable}', ax=ax)
-                st.pyplot(fig)
+            # Further analysis (trends, seasonality, etc.)
+            trends_analysis = generate_text(f"Analyze trends for {selected_variable}")
+            st.write(trends_analysis)
 
         # Main
         st.header('Exploratory Data Analysis')
@@ -200,7 +198,7 @@ if st.session_state.clicked[1]:
 
         # Variable Study
         st.header('Variable Study')
-        user_question_variable = st.selectbox("Select a variable for study", df.columns)
+        user_question_variable = st.selectbox("Select a variable for study", [''] + df.columns.tolist())
         if user_question_variable:
             function_question_variable(user_question_variable)
 
@@ -218,31 +216,24 @@ if st.session_state.clicked[1]:
         target_col = st.selectbox("Select Target Column", df.columns.tolist())
         num_years = st.number_input("Enter number of years for prediction", min_value=1, value=1)
         if st.button("Train Model"):
-            train_predictive_model(feature_cols, target_col, num_years)
+            # Check if the target column and feature columns exist
+            if target_col not in df.columns:
+                st.error(f"Target column '{target_col}' does not exist in the dataset.")
+            if not set(feature_cols).issubset(df.columns):
+                st.error("One or more feature columns do not exist in the dataset.")
 
-        # Download Report
-        st.header('Download Analysis Report')
+            # Handle NaN values in the target column
+            if df[target_col].isnull().any():
+                st.write(f"The target column '{target_col}' contains NaN values.")
+                st.write("Handling missing values...")
+                # Additional logic to handle missing values can be added here
+
+            # Here you would include your model training logic based on the selected features and target.
+            st.write("Model training logic is not implemented yet.")
+
+        # Report generation
         if st.button("Generate Report"):
-            content = """
-            <html>
-            <head>
-                <style>
-                    body {font-family: Arial, sans-serif; margin: 20px;}
-                    h1, h2 {color: #333;}
-                    table {width: 100%; border-collapse: collapse;}
-                    table, th, td {border: 1px solid #ddd;}
-                    th, td {padding: 8px; text-align: left;}
-                    th {background-color: #f2f2f2;}
-                    .chart {margin-bottom: 20px;}
-                </style>
-            </head>
-            <body>
-                <h1>Data Analysis Report</h1>
-                <h2>Exploratory Data Analysis</h2>
-                <p>This report provides insights from the data analysis performed on your dataset.</p>
-                <!-- You can include charts and tables here -->
-            </body>
-            </html>
-            """
-            pdf_path = generate_pdf_report(content)
-            st.success(f"Report generated: [Download it here](/{pdf_path})")
+            html_content = f"<h1>Data Analysis Report</h1><h2>Data Overview</h2>{df.describe().to_html()}"
+            pdf_path = generate_pdf_report(html_content)
+            st.success(f"Report generated successfully: [Download PDF](/{pdf_path})")
+
