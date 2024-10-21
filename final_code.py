@@ -12,6 +12,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.svm import SVR
 from sklearn.metrics import mean_squared_error
+from sklearn.inspection import permutation_importance
 
 # Define your Hugging Face API key here
 apikey = "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"
@@ -21,7 +22,7 @@ model_name = "gpt2"  # Replace with the model you need
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(model_name)
 
-# Initialize encryption key and cipher (For real usage, load this from a secure location)
+# Initialize encryption key and cipher
 key = Fernet.generate_key()
 cipher_suite = Fernet(key)
 
@@ -30,7 +31,6 @@ def generate_text(prompt):
     outputs = model.generate(inputs["input_ids"], max_length=150)
     return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-# Encryption and Decryption Functions
 def encrypt_data(data):
     return cipher_suite.encrypt(data.encode())
 
@@ -61,10 +61,10 @@ with st.sidebar:
     st.caption('''**Upload a CSV file to begin. I will analyze the data, provide insights, generate visualizations, 
     and suggest appropriate machine learning models to tackle your problem. Let’s dive into your data science journey!**
     ''')
-
+    
     st.divider()
-
-    st.caption("<p style ='text-align:center'> made with ❤️ by Kare</p>", unsafe_allow_html=True)
+    
+    st.caption("<p style ='text-align:center'> made with ❤️ by Team Avengers</p>", unsafe_allow_html=True)
 
 # Initialize the key in session state
 if 'clicked' not in st.session_state:
@@ -79,7 +79,7 @@ st.button("Let's get started", on_click=clicked, args=[1])
 if st.session_state.clicked[1]:
     user_csv = st.file_uploader("Upload your file here", type="csv")
     if user_csv is not None:
-        # Encrypt the file for demonstration (you can test decryption with a sample encrypted file)
+        # Encrypt the file for demonstration
         file_data = user_csv.read()
         encrypted_file = encrypt_data(file_data.decode(errors='ignore'))
 
@@ -93,13 +93,13 @@ if st.session_state.clicked[1]:
             st.error(f"An error occurred during decryption: {e}")
             st.stop()
 
-        # Function sidebar
+        # EDA Steps Function
         @st.cache_data
         def steps_eda():
             steps_eda = generate_text('What are the steps of EDA?')
             return steps_eda
 
-        # Functions main
+        # Functions for EDA
         @st.cache_data
         def function_agent():
             st.write("**Data Overview**")
@@ -126,7 +126,7 @@ if st.session_state.clicked[1]:
             # Heatmap of missing values
             fig, ax = plt.subplots()
             sns.heatmap(df.isnull(), cbar=False, cmap='viridis', ax=ax)
-            ax.set_title('Heatmap of Missing Values')  # Title for the heatmap
+            ax.set_title('Heatmap of Missing Values')
             st.pyplot(fig)
 
             # Histograms of numeric features
@@ -134,7 +134,7 @@ if st.session_state.clicked[1]:
             if len(num_features) > 0:
                 fig, ax = plt.subplots()
                 df[num_features].hist(ax=ax, bins=30, figsize=(10, 7))
-                ax.set_title('Histograms of Numeric Features')  # Title for the histograms
+                ax.set_title('Histograms of Numeric Features')
                 st.pyplot(fig)
             else:
                 st.write("No numeric features available for histograms.")
@@ -142,54 +142,83 @@ if st.session_state.clicked[1]:
             # Pairplot for visualizing relationships between numeric features
             if len(num_features) > 1:
                 pairplot_fig = sns.pairplot(df[num_features])
-                pairplot_fig.fig.suptitle('Pairplot of Numeric Features', y=1.02)  # Title for the pairplot
+                pairplot_fig.fig.suptitle('Pairplot of Numeric Features', y=1.02)
                 st.pyplot(pairplot_fig.fig)
-
-            # Suggest ML models based on data types
-            st.markdown(
-            """
-            <p style='font-size: 25px;'><strong>Suggested Machine Learning Models</strong></p>
-            """,
-            unsafe_allow_html=True
-            )
-
-            # Using st.write() for other messages
-            if 'object' in df.dtypes.values:
-                st.write("Since your dataset contains categorical data, consider using models like Decision Trees, Random Forests, or Gradient Boosting.")
-            else:
-                st.write("Since your dataset is numeric, consider using models like Linear Regression, Support Vector Machines, or Neural Networks.")
 
         @st.cache_data
         def function_question_variable(selected_variable):
-            # Provide insights on the selected variable
             st.write(f"**Analyzing Variable: {selected_variable}**")
+            
+            # Instructions for users
+            st.info("""
+            **Instructions:**
+            - You will see the summary statistics, distribution, and outliers for the selected variable.
+            - These insights help understand the variable's data patterns, outliers, and missing values.
+            """)
 
             # Summary statistics
             summary_statistics = df[selected_variable].describe()
             st.write("**Summary Statistics**")
             st.write(summary_statistics)
 
-            # Check for normality
+            # Distribution plot with improved design
+            st.write("**Distribution of the Variable**")
             fig, ax = plt.subplots()
-            sns.histplot(df[selected_variable], kde=True, ax=ax)
-            ax.set_title(f'Distribution of {selected_variable}')
-            st.pyplot(fig)  # Use the current figure
+            sns.histplot(df[selected_variable], kde=True, color="skyblue", ax=ax)
+            ax.set_title(f'Distribution of {selected_variable}', fontsize=14, weight='bold')
+            ax.set_xlabel(selected_variable, fontsize=12)
+            ax.set_ylabel('Frequency', fontsize=12)
+            st.pyplot(fig)
 
-            # Assess outliers
+            # Outlier detection
+            st.write("**Outlier Detection**")
             lower_bound = df[selected_variable].quantile(0.25) - 1.5 * (df[selected_variable].quantile(0.75) - df[selected_variable].quantile(0.25))
             upper_bound = df[selected_variable].quantile(0.75) + 1.5 * (df[selected_variable].quantile(0.75) - df[selected_variable].quantile(0.25))
             outlier_count = ((df[selected_variable] < lower_bound) | (df[selected_variable] > upper_bound)).sum()
             st.write(f"**Number of Outliers for {selected_variable}:** {outlier_count}")
 
+            # Boxplot for outliers
+            st.write("**Boxplot of the Variable**")
+            fig, ax = plt.subplots()
+            sns.boxplot(x=df[selected_variable], ax=ax, color="lightcoral")
+            ax.set_title(f'Boxplot of {selected_variable}', fontsize=14, weight='bold')
+            st.pyplot(fig)
+
             # Missing values
             missing_values = df[selected_variable].isnull().sum()
             st.write(f"**Missing Values in {selected_variable}:** {missing_values}")
 
-            # Further analysis (trends, seasonality, etc.)
-            trends_analysis = generate_text(f"Analyze trends for {selected_variable}")
-            st.write(trends_analysis)
+            # Additional statistics
+            st.write("**Additional Statistics**")
+            median = df[selected_variable].median()
+            std_dev = df[selected_variable].std()
+            skewness = df[selected_variable].skew()
+            kurtosis = df[selected_variable].kurtosis()
+            st.write(f"**Median:** {median}, **Standard Deviation:** {std_dev}, **Skewness:** {skewness}, **Kurtosis:** {kurtosis}")
 
-        # Main
+            # Summary paragraph
+            summary_paragraph = (
+                f"The variable **{selected_variable}** exhibits a median value of approximately **{median:.2f}**, "
+                f"indicating a central tendency in its distribution. With a standard deviation of around **{std_dev:.2f}**, "
+                f"this suggests moderate variability around the median. The skewness value of **{skewness:.2f}** indicates "
+                f"a slight positive asymmetry in the distribution, meaning there may be a longer tail on the right side, "
+                f"implying that higher values are more prevalent. Additionally, the kurtosis of **{kurtosis:.2f}** suggests "
+                f"that the distribution is slightly flatter than a normal distribution, indicating fewer extreme values. "
+                f"Notably, there are **{missing_values}** missing entries in the dataset for this variable, which should be "
+                f"addressed to enhance the robustness of any analysis or predictive modeling."
+            )
+            st.write(summary_paragraph)
+
+            # Correlation with other features (only numeric columns)
+            st.write("**Correlation with Other Features**")
+            numeric_df = df.select_dtypes(include=['number'])  # Keep only numeric columns
+            if not numeric_df.empty:
+                correlations = numeric_df.corr()[selected_variable].sort_values(ascending=False)
+                st.write(correlations)
+            else:
+                st.write("No numeric features available for correlation.")
+
+        # Main EDA Section
         st.header('Exploratory Data Analysis')
         st.subheader('General information about the data')
         function_agent()
@@ -200,15 +229,21 @@ if st.session_state.clicked[1]:
         if user_question_variable:
             function_question_variable(user_question_variable)
 
-        # Dataframe Study
+        # DataFrame Study
         st.header('DataFrame Study')
         user_question_dataframe = st.text_area("Ask a question about the DataFrame")
+
         if user_question_dataframe:
+            # Generate response based on the user's question
             dataframe_info = generate_text(user_question_dataframe)
-            # Prevent repeating responses
-            if dataframe_info not in st.session_state:
+            
+            # Store the response in session state to prevent repetitions
+            if "dataframe_responses" not in st.session_state:
+                st.session_state["dataframe_responses"] = []
+            
+            if dataframe_info not in st.session_state["dataframe_responses"]:
                 st.write(dataframe_info)
-                st.session_state[dataframe_info] = dataframe_info
+                st.session_state["dataframe_responses"].append(dataframe_info)
 
         # Predictive Modeling
         st.header('Predictive Modeling')

@@ -1,73 +1,68 @@
-# Import required libraries
 import os
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 import streamlit as st
-from dotenv import load_dotenv, find_dotenv
-from langchain import LLMChain, PromptTemplate
-from langchain.chains import SequentialChain
-from langchain.utilities import WikipediaAPIWrapper
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from cryptography.fernet import Fernet
+import io
+import base64
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.svm import SVR
+from sklearn.metrics import mean_squared_error
 
-def prompt_templates():
-    data_problem_template = PromptTemplate(
-        input_variables=['business_problem'],
-        template='Convert the following business problem into a data science problem: {business_problem}.'
-    )
-    model_selection_template = PromptTemplate(
-        input_variables=['data_problem', 'wikipedia_research'],
-        template='Give a list of machine learning algorithms that are suitable to solve this problem: {data_problem}, while using this wikipedia research: {wikipedia_research}.'
-    )
-    return data_problem_template, model_selection_template
+# Define your Hugging Face API key here
+apikey = "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"
 
-def chains():
-    generate_text = HuggingFaceRunnable(model_name="gpt2")  # Replace with your model name
-    data_problem_chain = LLMChain(
-        llm=generate_text,  # Ensure this is a valid Runnable object
-        prompt=prompt_templates()[0],
-        verbose=True,
-        output_key='data_problem'
-    )
-    model_selection_chain = LLMChain(
-        llm=generate_text,  # Ensure this is a valid Runnable object
-        prompt=prompt_templates()[1],
-        verbose=True,
-        output_key='model_selection'
-    )
-    sequential_chain = SequentialChain(
-        chains=[data_problem_chain, model_selection_chain],
-        input_variables=['business_problem', 'wikipedia_research'],
-        output_variables=['data_problem', 'model_selection'],
-        verbose=True
-    )
-    return sequential_chain
-
-
-# Define the model name and initialize the custom runnable class
+# Initialize the tokenizer and model
 model_name = "gpt2"  # Replace with the model you need
-generate_text = HuggingFaceRunnable(model_name)
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name)
 
-def generate_text_func(prompt):
-    return generate_text(prompt)
+# Initialize encryption key and cipher (For real usage, load this from a secure location)
+key = Fernet.generate_key()
+cipher_suite = Fernet(key)
+
+def generate_text(prompt):
+    inputs = tokenizer(prompt, return_tensors="pt")
+    outputs = model.generate(inputs["input_ids"], max_length=150)
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+# Encryption and Decryption Functions
+def encrypt_data(data):
+    return cipher_suite.encrypt(data.encode())
+
+def decrypt_data(encrypted_data):
+    try:
+        decrypted_data = cipher_suite.decrypt(encrypted_data).decode()
+        return decrypted_data
+    except Exception as e:
+        st.error(f"Decryption failed: {e}")
+        raise
+
+def plt_to_base64(fig):
+    """Convert matplotlib figure to base64 for embedding in HTML"""
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    return base64.b64encode(buf.read()).decode('utf-8')
 
 # Title
 st.title('AI Assistant for Data Science 🤖')
 
 # Welcoming message
-st.write("Hello, 👋 I am your AI Assistant and I am here to help you with your data science projects.")
+st.write("Hello, 👋 I am your AI Assistant, and I am here to help you with your data science projects.")
 
 # Explanation sidebar
 with st.sidebar:
     st.write('*Your Data Science Adventure Begins with a CSV File.*')
-    st.caption('''**You may already know that every exciting data science journey starts with a dataset.
-    That's why I'd love for you to upload a CSV file.
-    Once we have your data in hand, we'll dive into understanding it and have some fun exploring it.
-    Then, we'll work together to shape your business challenge into a data science framework.
-    I'll introduce you to the coolest machine learning models, and we'll use them to tackle your problem. Sounds fun right?**
+    st.caption('''**Upload a CSV file to begin. I will analyze the data, provide insights, generate visualizations, 
+    and suggest appropriate machine learning models to tackle your problem. Let’s dive into your data science journey!**
     ''')
-
     st.divider()
-
-    st.caption("<p style='text-align:center'> made with ❤️ by Ana</p>", unsafe_allow_html=True)
+    st.caption("<p style ='text-align:center'> made with ❤️ by Kare</p>", unsafe_allow_html=True)
 
 # Initialize the key in session state
 if 'clicked' not in st.session_state:
@@ -78,16 +73,28 @@ def clicked(button):
     st.session_state.clicked[button] = True
 
 st.button("Let's get started", on_click=clicked, args=[1])
+
 if st.session_state.clicked[1]:
     user_csv = st.file_uploader("Upload your file here", type="csv")
     if user_csv is not None:
-        user_csv.seek(0)
-        df = pd.read_csv(user_csv, low_memory=False)
+        # Encrypt the file for demonstration (you can test decryption with a sample encrypted file)
+        file_data = user_csv.read()
+        encrypted_file = encrypt_data(file_data.decode(errors='ignore'))
+
+        # Notify user about encryption
+        st.write("Your data has been successfully encrypted.")
+
+        try:
+            decrypted_file = decrypt_data(encrypted_file)
+            df = pd.read_csv(io.StringIO(decrypted_file), low_memory=False)
+        except Exception as e:
+            st.error(f"An error occurred during decryption: {e}")
+            st.stop()
 
         # Function sidebar
         @st.cache_data
         def steps_eda():
-            steps_eda = generate_text_func('What are the steps of EDA')
+            steps_eda = generate_text('What are the steps of EDA?')
             return steps_eda
 
         # Functions main
@@ -96,131 +103,171 @@ if st.session_state.clicked[1]:
             st.write("**Data Overview**")
             st.write("The first rows of your dataset look like this:")
             st.write(df.head())
+
             st.write("**Data Cleaning**")
-            columns_df = generate_text_func("What are the meaning of the columns?")
-            st.write(columns_df)
-            missing_values = generate_text_func("How many missing values does this dataframe have? Start the answer with 'There are'")
-            st.write(missing_values)
-            duplicates = generate_text_func("Are there any duplicate values and if so where?")
-            st.write(duplicates)
+            st.write("Missing values in each column:")
+            null_values = df.isnull().sum()
+            st.write(null_values[null_values > 0])
+
+            st.write("Duplicate values in the dataset:")
+            duplicates = df[df.duplicated()]
+            if not duplicates.empty:
+                st.write(duplicates)
+            else:
+                st.write("No duplicate values found.")
+
             st.write("**Data Summarisation**")
             st.write(df.describe())
-            correlation_analysis = generate_text_func("Calculate correlations between numerical variables to identify potential relationships.")
-            st.write(correlation_analysis)
-            outliers = generate_text_func("Identify outliers in the data that may be erroneous or that may have a significant impact on the analysis.")
-            st.write(outliers)
-            new_features = generate_text_func("What new features would be interesting to create?")
-            st.write(new_features)
-            return
+
+            st.write("**Visualizations**")
+
+            # Heatmap of missing values
+            fig, ax = plt.subplots()
+            sns.heatmap(df.isnull(), cbar=False, cmap='viridis', ax=ax)
+            ax.set_title('Heatmap of Missing Values')
+            st.pyplot(fig)
+
+            # Histograms of numeric features
+            num_features = df.select_dtypes(include=['number']).columns
+            if len(num_features) > 0:
+                fig, ax = plt.subplots()
+                df[num_features].hist(ax=ax, bins=30, figsize=(10, 7))
+                ax.set_title('Histograms of Numeric Features')
+                st.pyplot(fig)
+            else:
+                st.write("No numeric features available for histograms.")
+
+            # Pairplot for visualizing relationships between numeric features
+            if len(num_features) > 1:
+                pairplot_fig = sns.pairplot(df[num_features])
+                pairplot_fig.fig.suptitle('Pairplot of Numeric Features', y=1.02)
+                st.pyplot(pairplot_fig.fig)
+
+            # Suggest ML models based on data types
+            st.markdown(
+            """
+            <p style='font-size: 25px;'><strong>Suggested Machine Learning Models</strong></p>
+            """,
+            unsafe_allow_html=True
+            )
+
+            if 'object' in df.dtypes.values:
+                st.write("Since your dataset contains categorical data, consider using models like Decision Trees, Random Forests, or Gradient Boosting.")
+            else:
+                st.write("Since your dataset is numeric, consider using models like Linear Regression, Support Vector Machines, or Neural Networks.")
 
         @st.cache_data
-        def function_question_variable():
-            st.line_chart(df, y=[user_question_variable])
-            summary_statistics = generate_text_func(f"Give me a summary of the statistics of {user_question_variable}")
+        def function_question_variable(selected_variable):
+            # Provide insights on the selected variable
+            st.write(f"**Analyzing Variable: {selected_variable}**")
+
+            # Summary statistics
+            summary_statistics = df[selected_variable].describe()
+            st.write("**Summary Statistics**")
             st.write(summary_statistics)
-            normality = generate_text_func(f"Check for normality or specific distribution shapes of {user_question_variable}")
-            st.write(normality)
-            outliers = generate_text_func(f"Assess the presence of outliers of {user_question_variable}")
-            st.write(outliers)
-            trends = generate_text_func(f"Analyse trends, seasonality, and cyclic patterns of {user_question_variable}")
-            st.write(trends)
-            missing_values = generate_text_func(f"Determine the extent of missing values of {user_question_variable}")
-            st.write(missing_values)
-            return
 
-        @st.cache_data
-        def function_question_dataframe():
-            dataframe_info = generate_text_func(user_question_dataframe)
-            st.write(dataframe_info)
-            return
+            # Check for normality
+            fig, ax = plt.subplots()
+            sns.histplot(df[selected_variable], kde=True, ax=ax)
+            ax.set_title(f'Distribution of {selected_variable}')
+            st.pyplot(fig)
 
-        @st.cache_data
-        def wiki(prompt):
-            wiki_research = WikipediaAPIWrapper().run(prompt)
-            return wiki_research
+            # Assess outliers
+            lower_bound = df[selected_variable].quantile(0.25) - 1.5 * (df[selected_variable].quantile(0.75) - df[selected_variable].quantile(0.25))
+            upper_bound = df[selected_variable].quantile(0.75) + 1.5 * (df[selected_variable].quantile(0.75) - df[selected_variable].quantile(0.25))
+            outlier_count = ((df[selected_variable] < lower_bound) | (df[selected_variable] > upper_bound)).sum()
+            st.write(f"**Number of Outliers for {selected_variable}:** {outlier_count}")
 
-        @st.cache_data
-        def prompt_templates():
-            data_problem_template = PromptTemplate(
-                input_variables=['business_problem'],
-                template='Convert the following business problem into a data science problem: {business_problem}.'
-            )
-            model_selection_template = PromptTemplate(
-                input_variables=['data_problem', 'wikipedia_research'],
-                template='Give a list of machine learning algorithms that are suitable to solve this problem: {data_problem}, while using this wikipedia research: {wikipedia_research}.'
-            )
-            return data_problem_template, model_selection_template
+            # Missing values
+            missing_values = df[selected_variable].isnull().sum()
+            st.write(f"**Missing Values in {selected_variable}:** {missing_values}")
 
-        @st.cache_data
-        def chains():
-            data_problem_chain = LLMChain(llm=generate_text_func, prompt=prompt_templates()[0], verbose=True, output_key='data_problem')
-            model_selection_chain = LLMChain(llm=generate_text_func, prompt=prompt_templates()[1], verbose=True, output_key='model_selection')
-            sequential_chain = SequentialChain(chains=[data_problem_chain, model_selection_chain], input_variables=['business_problem', 'wikipedia_research'], output_variables=['data_problem', 'model_selection'], verbose=True)
-            return sequential_chain
-
-        @st.cache_data
-        def chains_output(prompt, wiki_research):
-            my_chain = chains()
-            my_chain_output = my_chain({'business_problem': prompt, 'wikipedia_research': wiki_research})
-            my_data_problem = my_chain_output["data_problem"]
-            my_model_selection = my_chain_output["model_selection"]
-            return my_data_problem, my_model_selection
-
-        @st.cache_data
-        def list_to_selectbox(my_model_selection_input):
-            algorithm_lines = my_model_selection_input.split('\n')
-            algorithms = [algorithm.split(':')[-1].split('.')[-1].strip() for algorithm in algorithm_lines if algorithm.strip()]
-            algorithms.insert(0, "Select Algorithm")
-            formatted_list_output = [f"{algorithm}" for algorithm in algorithms if algorithm]
-            return formatted_list_output
-
-        @st.cache_data
-        def python_solution(my_data_problem, selected_algorithm, user_csv):
-            # Replace this with a method for generating code or providing a solution
-            solution = generate_text_func(f"Write a Python script to solve this: {my_data_problem}, using this algorithm: {selected_algorithm}, using this as your dataset: {user_csv}.")
-            return solution
+            # Further analysis (trends, seasonality, etc.)
+            trends_analysis = generate_text(f"Analyze trends for {selected_variable}")
+            st.write(trends_analysis)
 
         # Main
         st.header('Exploratory Data Analysis')
-        st.subheader('General Information About the Dataset')
-
-        with st.sidebar:
-            with st.expander('What are the steps of EDA'):
-                st.write(steps_eda())
-
+        st.subheader('General information about the data')
         function_agent()
 
-        st.subheader('Variable of Study')
-        user_question_variable = st.text_input('What variable are you interested in')
+        # Variable Study
+        st.header('Variable Study')
+        user_question_variable = st.selectbox("Select a variable for study", [''] + df.columns.tolist())
         if user_question_variable:
-            function_question_variable()
+            function_question_variable(user_question_variable)
 
-            st.subheader('Further Study')
+        # Dataframe Study
+        st.header('DataFrame Study')
+        user_question_dataframe = st.text_area("Ask a question about the DataFrame")
+        if user_question_dataframe:
+            dataframe_info = generate_text(user_question_dataframe)
+            st.write(dataframe_info)
 
-            user_question_dataframe = st.text_input("Is there anything else you would like to know about your dataframe?")
-            if user_question_dataframe not in ("", "no", "No"):
-                function_question_dataframe()
-            elif user_question_dataframe in ("no", "No"):
-                st.write("")
+       # Predictive Modeling
+        st.header('Predictive Modeling')
+        st.write("**Select Feature Columns and Target Column for Prediction**")
+        feature_cols = st.multiselect("Select Feature Columns", df.columns.tolist())
+        target_col = st.selectbox("Select Target Column", df.columns.tolist())
+        num_years = st.number_input("Enter number of years for prediction", min_value=1, value=1)
+        model_choice = st.selectbox("Select Machine Learning Model", ["Linear Regression", "Random Forest", "Gradient Boosting", "Support Vector Regression"])
 
-            if user_question_dataframe:
-                st.divider()
-                st.header("Data Science Problem")
-                st.write("Now that we have a solid grasp of the data at hand and a clear understanding of the variable we intend to investigate, it's important that we reframe our business problem into a data science problem.")
+        # Check for missing values in target variable
+        if target_col:
+            missing_target = df[target_col].isnull().sum()
+            if missing_target > 0:
+                st.warning(f"The target column '{target_col}' contains {missing_target} missing values. Please handle them before training the model.")
+            else:
+                # Dynamic Hyperparameter Adjustment
+                st.subheader("Advanced Model Options")
+                if model_choice == "Random Forest":
+                    n_estimators = st.slider("Number of Estimators", 10, 100, 10)
+                    max_depth = st.slider("Max Depth", 2, 10, 5)
+                elif model_choice == "Gradient Boosting":
+                    learning_rate = st.slider("Learning Rate", 0.01, 0.3, 0.1)
+                    n_estimators = st.slider("Number of Estimators", 10, 100, 10)
+                elif model_choice == "Support Vector Regression":
+                    C = st.slider("C (Regularization)", 0.01, 10.0, 1.0)
+                    epsilon = st.slider("Epsilon", 0.01, 1.0, 0.1)
 
-                prompt = st.text_area('What is the business problem you would like to solve?')
+                if st.button("Train Advanced Model"):
+                    if target_col:
+                        X = df[feature_cols]
+                        y = df[target_col]
 
-                if prompt:
-                    wiki_research = wiki(prompt)
-                    my_data_problem, my_model_selection = chains_output(prompt, wiki_research)
-                    
-                    st.write(my_data_problem)
-                    st.write(my_model_selection)
+                        # Drop rows with NaN values in feature or target variables
+                        if X.isnull().values.any() or y.isnull().values.any():
+                            st.warning("Data contains NaN values. Please clean the data.")
+                        else:
+                            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-                    formatted_list = list_to_selectbox(my_model_selection)
-                    selected_algorithm = st.selectbox("Select Machine Learning Algorithm", formatted_list)
+                            if model_choice == "Linear Regression":
+                                model = LinearRegression()
+                            elif model_choice == "Random Forest":
+                                model = RandomForestRegressor(n_estimators=n_estimators, max_depth=max_depth)
+                            elif model_choice == "Gradient Boosting":
+                                model = GradientBoostingRegressor(learning_rate=learning_rate, n_estimators=n_estimators)
+                            elif model_choice == "Support Vector Regression":
+                                model = SVR(C=C, epsilon=epsilon)
 
-                    if selected_algorithm != "Select Algorithm":
-                        st.subheader("Solution")
-                        solution = python_solution(my_data_problem, selected_algorithm, user_csv)
-                        st.write(solution)
+                            model.fit(X_train, y_train)
+                            predictions = model.predict(X_test)
+                            mse = mean_squared_error(y_test, predictions)
+                            rmse = mse ** 0.5
+                            st.write(f"**Model Accuracy (RMSE):** {rmse:.2f}")
+
+                            # Predict future state
+                            future_prediction = model.predict(X)  # Replace with actual future data
+                            st.write(f"**The market is expected to be high in the future after {num_years} years:** {future_prediction.mean():.2f}")
+
+
+        # LangChain Integration
+        st.header("AI-Driven Data Insights with LangChain")
+        st.write("Ask any data-related question, and the AI will provide insights.")
+
+        user_query = st.text_area("Your Question", "Explain trends in the data...")
+        if user_query:
+            response = generate_text(user_query)  # Mock response
+            st.write(f"AI Response: {response}")
+
+        st.write("Thank you for using the AI Assistant for Data Science! 🚀")

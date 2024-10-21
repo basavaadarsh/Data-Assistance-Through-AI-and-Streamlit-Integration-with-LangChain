@@ -7,3 +7,6 @@ numpy
 openai
 python-dotenv
 seaborn
+cryptography
+transformers
+scikit-learn
