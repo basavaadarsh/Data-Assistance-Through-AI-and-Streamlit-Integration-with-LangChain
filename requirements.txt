@@ -10,3 +10,5 @@ seaborn
 cryptography
 transformers
 scikit-learn
+plotly
+fpdf
