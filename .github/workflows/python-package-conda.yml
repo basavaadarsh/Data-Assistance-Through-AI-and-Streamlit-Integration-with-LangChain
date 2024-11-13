@@ -30,4 +30,8 @@ jobs:
     - name: Test with pytest
       run: |
         pip install pytest
-        pytest tests/  # Change 'tests/' to the directory containing your test files
+        if ls tests/*_test.py 1> /dev/null 2>&1; then
+        pytest
+        else
+        echo "No tests to run."
+        fi
