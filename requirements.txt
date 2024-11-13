@@ -12,3 +12,5 @@ transformers
 scikit-learn
 plotly
 fpdf
+torch
+scipy
