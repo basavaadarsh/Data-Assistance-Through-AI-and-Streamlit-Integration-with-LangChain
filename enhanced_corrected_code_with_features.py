@@ -169,13 +169,24 @@ if st.session_state.clicked[1]:
         st.write("### Correlation Heatmap")
         plot_correlation_heatmap(df)
 
-        # Variable Study Function
+        @st.cache_data
         def function_question_variable(selected_variable):
             st.write(f"**Analyzing Variable: {selected_variable}**")
+            
+            # Instructions for users
+            st.info("""
+            **Instructions:**
+            - You will see the summary statistics, distribution, and outliers for the selected variable.
+            - These insights help understand the variable's data patterns, outliers, and missing values.
+            """)
+
+            # Summary statistics
             summary_statistics = df[selected_variable].describe()
             st.write("**Summary Statistics**")
             st.write(summary_statistics)
 
+            # Distribution plot with improved design
+            st.write("**Distribution of the Variable**")
             fig, ax = plt.subplots()
             sns.histplot(df[selected_variable], kde=True, color="skyblue", ax=ax)
             ax.set_title(f'Distribution of {selected_variable}', fontsize=14, weight='bold')
@@ -183,18 +194,54 @@ if st.session_state.clicked[1]:
             ax.set_ylabel('Frequency', fontsize=12)
             st.pyplot(fig)
 
+            # Outlier detection
+            st.write("**Outlier Detection**")
             lower_bound = df[selected_variable].quantile(0.25) - 1.5 * (df[selected_variable].quantile(0.75) - df[selected_variable].quantile(0.25))
             upper_bound = df[selected_variable].quantile(0.75) + 1.5 * (df[selected_variable].quantile(0.75) - df[selected_variable].quantile(0.25))
             outlier_count = ((df[selected_variable] < lower_bound) | (df[selected_variable] > upper_bound)).sum()
             st.write(f"**Number of Outliers for {selected_variable}:** {outlier_count}")
 
+            # Boxplot for outliers
+            st.write("**Boxplot of the Variable**")
             fig, ax = plt.subplots()
             sns.boxplot(x=df[selected_variable], ax=ax, color="lightcoral")
             ax.set_title(f'Boxplot of {selected_variable}', fontsize=14, weight='bold')
             st.pyplot(fig)
 
+            # Missing values
             missing_values = df[selected_variable].isnull().sum()
             st.write(f"**Missing Values in {selected_variable}:** {missing_values}")
+
+            # Additional statistics
+            st.write("**Additional Statistics**")
+            median = df[selected_variable].median()
+            std_dev = df[selected_variable].std()
+            skewness = df[selected_variable].skew()
+            kurtosis = df[selected_variable].kurtosis()
+            st.write(f"**Median:** {median}, **Standard Deviation:** {std_dev}, **Skewness:** {skewness}, **Kurtosis:** {kurtosis}")
+
+            # Summary paragraph
+            summary_paragraph = (
+                f"The variable **{selected_variable}** exhibits a median value of approximately **{median:.2f}**, "
+                f"indicating a central tendency in its distribution. With a standard deviation of around **{std_dev:.2f}**, "
+                f"this suggests moderate variability around the median. The skewness value of **{skewness:.2f}** indicates "
+                f"a slight positive asymmetry in the distribution, meaning there may be a longer tail on the right side, "
+                f"implying that higher values are more prevalent. Additionally, the kurtosis of **{kurtosis:.2f}** suggests "
+                f"that the distribution is slightly flatter than a normal distribution, indicating fewer extreme values. "
+                f"Notably, there are **{missing_values}** missing entries in the dataset for this variable, which should be "
+                f"addressed to enhance the robustness of any analysis or predictive modeling."
+            )
+            st.write(summary_paragraph)
+
+            # Correlation with other features (only numeric columns)
+            st.write("**Correlation with Other Features**")
+            numeric_df = df.select_dtypes(include=['number'])  # Keep only numeric columns
+            if not numeric_df.empty:
+                correlations = numeric_df.corr()[selected_variable].sort_values(ascending=False)
+                st.write(correlations)
+            else:
+                st.write("No numeric features available for correlation.")
+
 
         # Variable Study
         st.header('Variable Study')
@@ -287,94 +334,24 @@ if st.session_state.clicked[1]:
                 st.write(predictions)
 
                 # Model Comparison Section
-                st.header('Model Comparison')
+                st.header('Model Comparison Results')
+                
+                # Automatically run model comparison after training
+                models_to_compare = {
+                    "Linear Regression": LinearRegression(),
+                    "Random Forest": RandomForestRegressor(n_estimators=100, max_depth=10),
+                    "Gradient Boosting": GradientBoostingRegressor(n_estimators=100, learning_rate=0.1),
+                    "Support Vector Regression": SVR(C=1.0, kernel='rbf')
+                }
 
-                if st.button("Run Model Comparison"):
-                    # Define models to compare
-                    models_to_compare = {
-                        "Linear Regression": LinearRegression(),
-                        "Random Forest": RandomForestRegressor(n_estimators=100, max_depth=10),
-                        "Gradient Boosting": GradientBoostingRegressor(n_estimators=100, learning_rate=0.1),
-                        "Support Vector Regression": SVR(C=1.0, kernel='rbf')
-                    }
+                comparison_results = {}
+                for model_name, model_instance in models_to_compare.items():
+                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                    model_instance.fit(X_train, y_train)
+                    preds = model_instance.predict(X_test)
+                    rmse = mean_squared_error(y_test, preds) ** 0.5
+                    comparison_results[model_name] = rmse
 
-                    # Dictionary to store RMSE results for each model
-                    comparison_results = {}
-
-                    # Loop over each model, train it, and calculate RMSE
-                    for model_name, model_instance in models_to_compare.items():
-                        # Train-test split
-                        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-                        # Train model
-                        model_instance.fit(X_train, y_train)
-
-                        # Predict on test data
-                        preds = model_instance.predict(X_test)
-
-                        # Calculate RMSE
-                        mse = mean_squared_error(y_test, preds)
-                        rmse = mse ** 0.5
-
-                        # Store the result
-                        comparison_results[model_name] = rmse
-
-                    # Create a DataFrame from the comparison results for better display
-                    comparison_df = pd.DataFrame.from_dict(comparison_results, orient='index', columns=['RMSE']).sort_values(by="RMSE")
-                    
-                    # Display the comparison table in Streamlit
-                    st.write("### Model Comparison Results")
-                    st.write(comparison_df)
-
-                    # Plot the comparison as a bar chart
-                    st.write("### Model Comparison (RMSE)")
-                    st.bar_chart(comparison_df)
-
-
-                # Save Model
-                if st.button("Save Model"):
-                    try:
-                        model_file_path = "trained_model.pkl"
-                        with open(model_file_path, "wb") as f:
-                            pickle.dump(model, f)
-                        st.success("Model saved successfully as 'trained_model.pkl'.")
-                    except Exception as e:
-                        st.error(f"An error occurred while saving the model: {e}")
-
-                # Load Model
-                if st.button("Load Model"):
-                    model_file_path = "trained_model.pkl"
-                    try:
-                        if os.path.exists(model_file_path):
-                            with open(model_file_path, "rb") as f:
-                                loaded_model = pickle.load(f)
-                            st.success("Model loaded successfully.")
-                        else:
-                            st.error("Model file 'trained_model.pkl' not found. Please save a model first.")
-                    except Exception as e:
-                        st.error(f"An error occurred while loading the model: {e}")
-
-                # Generate PDF Report
-                if st.button("Generate PDF Report"):
-                    try:
-                        pdf = FPDF()
-                        pdf.add_page()
-                        pdf.set_font("Arial", "B", 16)
-                        pdf.cell(200, 10, "Data Science Report", ln=True, align="C")
-                        
-                        pdf.set_font("Arial", "", 12)
-                        pdf.cell(200, 10, f"Model: {model_choice}", ln=True)
-                        pdf.cell(200, 10, f"RMSE: {rmse:.2f}", ln=True)
-
-                        pdf_buffer = io.BytesIO()
-                        pdf.output(pdf_buffer)
-                        pdf_buffer.seek(0)
-
-                        st.download_button(
-                            label="Download Report",
-                            data=pdf_buffer,
-                            file_name="data_science_report.pdf",
-                            mime="application/pdf"
-                        )
-                    except Exception as e:
-                        st.error(f"An error occurred while generating the report: {e}")
+                comparison_df = pd.DataFrame.from_dict(comparison_results, orient='index', columns=['RMSE']).sort_values(by="RMSE")
+                st.write(comparison_df)
+                st.bar_chart(comparison_df)
